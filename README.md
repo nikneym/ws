@@ -47,11 +47,11 @@ pub fn main() !void {
 
 Planned
 ===========
-* WebSocket server support [ ]
-* TLS support out of the box [ ]
-* Custom headers [ ]
-* WebSocket Compression support [ ]
-* Maybe support for streaming input? [ ]
+- [ ] WebSocket server support
+- [ ] TLS support out of the box
+- [ ] Custom headers
+- [ ] WebSocket Compression support
+- [ ] Maybe support for streaming input?
 
 Thanks
 ===========
