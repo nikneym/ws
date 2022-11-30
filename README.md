@@ -22,7 +22,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var client = try connect(allocator, "ws://localhost:8080/");
+    var client = try ws.connect(allocator, "ws://localhost:8080/");
     defer client.deinit();
 
     var msg = try client.receive();
