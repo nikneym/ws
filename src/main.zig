@@ -30,25 +30,35 @@ pub fn connect(allocator: mem.Allocator, url: []const u8) !Connection {
     return Connection.init(allocator, client, host, uri.path);
 }
 
-test "connect to localhost:8080" {
-    const allocator = std.testing.allocator;
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
 
     var client = try connect(allocator, "ws://localhost:8080/");
     defer client.deinit();
 
-    var msg = try client.receive();
-    switch (msg.type) {
-        .text => {
-            std.debug.print("received: {s}\n", .{msg.data});
-            try client.sendText(msg.data);
-        },
+    while (true) {
+        var msg = try client.receive();
+        switch (msg.type) {
+            .text => {
+                std.debug.print("received: {s}\n", .{msg.data});
+                try client.sendText(msg.data);
+            },
 
-        .ping => {
-            std.debug.print("got ping! sending pong...\n", .{});
-            try client.pong();
-        },
+            .ping => {
+                std.debug.print("got ping! sending pong...\n", .{});
+                try client.pong();
+            },
 
-        else => unreachable,
+            .close => {
+                std.debug.print("close", .{});
+                break;
+            },
+            
+            else => {
+                std.debug.print("got {s}: {s}\n", .{@tagName(msg.type), msg.data});
+            },
+        }
     }
 
     try client.close();
