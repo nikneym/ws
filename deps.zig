@@ -1,18 +1,9 @@
 const std = @import("std");
 
-pub const pkgs = struct {
-    pub const zuri = std.build.Pkg{
-        .name = "zuri",
-        .source = .{ .path = "lib/zuri/src/zuri.zig" },
-    };
+pub fn relativeToThis(comptime s: []const u8) []const u8 {
+    return comptime std.fs.path.dirname(@src().file).? ++ std.fs.path.sep_str ++ s;
+}
 
-    pub const all = [_]std.build.Pkg{
-        pkgs.zuri,
-    };
-
-    pub fn addAllTo(artifact: *std.build.LibExeObjStep) void {
-        inline for (all) |pkg| {
-            artifact.addPackage(pkg);
-        }
-    }
-};
+pub fn addAllTo(artifact: *std.build.LibExeObjStep) void {
+    artifact.addPackagePath("zuri", relativeToThis("lib/zuri/src/zuri.zig"));
+}
