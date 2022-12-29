@@ -32,6 +32,7 @@ pub fn connect(allocator: mem.Allocator, url: []const u8) !Connection {
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
     var client = try connect(allocator, "ws://localhost:8080/");
