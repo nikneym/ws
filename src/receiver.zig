@@ -90,8 +90,7 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
                     return mem.readIntBig(u64, self.header_buffer[2..]);
                 },
 
-                // FIXME: inline?
-                else => var_length,
+                inline else => var_length,
             };
         }
 
