@@ -3,8 +3,7 @@ const net = std.net;
 const mem = std.mem;
 const io = std.io;
 
-const Receiver = @import("receiver.zig").Receiver;
-const Sender = @import("sender.zig").Sender;
+const Client = @import("client.zig").Client;
 
 const common = @import("common.zig");
 const Opcode = common.Opcode;
@@ -13,85 +12,83 @@ const Message = common.Message;
 const READ_BUFFER_SIZE: usize = 1024 * 8;
 const WRITE_BUFFER_SIZE: usize = 1024 * 4;
 
-/// This is a direct implementation of ws over regular net.Stream.
+/// This is the direct implementation of ws over regular net.Stream.
 /// The Connection object will always use the current Stream implementation of net namespace.
 pub const Connection = struct {
-    stream: net.Stream,
-    reader: Reader,
-    writer: Writer,
-    receiver: Receiver(Reader.Reader, READ_BUFFER_SIZE),
-    sender: Sender(Writer, WRITE_BUFFER_SIZE),
+    underlying_stream: net.Stream,
+    ws_client: *WsClient,
+    buffered_reader: BufferedReader,
+    headers: std.StringHashMapUnmanaged([]const u8),
 
-    const Reader = io.BufferedReader(4096, net.Stream.Reader);
+    /// general types
+    const WsClient = Client(Reader, Writer, READ_BUFFER_SIZE, WRITE_BUFFER_SIZE);
+    const BufferedReader = io.BufferedReader(4096, net.Stream.Reader);
+    const Reader = BufferedReader.Reader;
     const Writer = net.Stream.Writer;
 
-    /// Create a new WebSocket connection together with net.Stream.
-    pub fn init(allocator: mem.Allocator, stream: net.Stream, host: []const u8, path: []const u8) !Connection {
-        var buffered_reader = io.bufferedReader(stream.reader());
-        var writer = stream.writer();
+    pub fn init(
+        allocator: mem.Allocator,
+        underlying_stream: net.Stream,
+        path: []const u8,
+        request_headers: ?[]const [2][]const u8,
+    ) !Connection {
+        var buffered_reader = BufferedReader{ .unbuffered_reader = underlying_stream.reader() };
+        var writer = underlying_stream.writer();
 
-        var self = Connection{
-            .stream = stream,
-            .reader = buffered_reader,
-            .writer = writer,
+        const ws_client = try allocator.create(WsClient);
+        errdefer allocator.destroy(ws_client);
+        ws_client.* = .{
             .receiver = .{ .reader = buffered_reader.reader() },
             .sender = .{ .writer = writer },
         };
 
-        try self.handshake(allocator, host, path);
+        var self = Connection{
+            .underlying_stream = underlying_stream,
+            .ws_client = ws_client,
+            .buffered_reader = buffered_reader,
+            .headers = .{},
+        };
+
+        try self.ws_client.handshake(allocator, path, request_headers, &self.headers);
         return self;
     }
 
-    /// Deinitialize the object.
-    pub fn deinit(self: Connection) void {
-        self.stream.close();
+    pub fn deinit(self: *Connection, allocator: mem.Allocator) void {
+        defer allocator.destroy(self.ws_client);
+        self.ws_client.deinit(allocator, &self.headers);
+        self.underlying_stream.close();
     }
 
-    fn handshake(self: *Connection, allocator: mem.Allocator, host: []const u8, path: []const u8) !void {
-        try self.sender.sendRequest(allocator, host, path);
-        try self.receiver.receiveResponse();
-    }
-
-    /// Send any kind of WebSocket message to the server.
-    pub fn send(self: *Connection, opcode: Opcode, payload: ?[]const u8) !void {
-        return self.sender.send(opcode, payload);
-    }
-
-    /// Send a text message to the server.
-    pub fn sendText(self: *Connection, payload: ?[]const u8) !void {
-        return self.sender.send(.text, payload);
-    }
-
-    /// Send a binary message to the server.
-    pub fn sendBinary(self: *Connection, payload: ?[]const u8) !void {
-        return self.sender.send(.binary, payload);
+    /// Send a WebSocket message to the server.
+    /// The `opcode` field can be text, binary, ping, pong or close.
+    /// In order to send continuation frames or streaming messages, check out `stream` function.
+    pub fn send(self: Connection, opcode: Opcode, data: []const u8) !void {
+        return self.ws_client.send(opcode, data);
     }
 
     /// Send a ping message to the server.
-    /// If you need to send a payload with this frame, use `send`.
-    pub fn ping(self: *Connection) !void {
-        return self.sender.send(.ping, null);
+    pub fn ping(self: Connection) !void {
+        return self.send(.ping, "");
     }
 
     /// Send a pong message to the server.
-    /// If you need to send a payload with this frame, use `send`.
-    pub fn pong(self: *Connection) !void {
-        return self.sender.send(.pong, null);
+    pub fn pong(self: Connection) !void {
+        return self.send(.pong, "");
     }
 
-    /// Close the connection.
-    pub fn close(self: *Connection) !void {
-        return self.sender.close();
+    /// Send a close message to the server.
+    pub fn close(self: Connection) !void {
+        return self.ws_client.close();
     }
 
     /// TODO: Add usage example
-    /// Send continuation frames to the server.
-    pub fn streams(self: *Connection, opcode: Opcode, payload: ?[]const u8) !void {
-        return self.sender.stream(opcode, payload);
+    /// Send send continuation frames or streaming messages to the server.
+    pub fn stream(self: Connection, opcode: Opcode, payload: ?[]const u8) !void {
+        return self.ws_client.stream(opcode, payload);
     }
 
     /// Receive a message from the server.
-    pub fn receive(self: *Connection) !Message {
-        return self.receiver.receive();
+    pub fn receive(self: Connection) !Message {
+        return self.ws_client.receive();
     }
 };

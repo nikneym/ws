@@ -20,26 +20,45 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
         // TODO: randomly generate mask bytes
         mask: [4]u8 = .{ 3, 5, 9, 1 },
 
-        // TODO
-        // first step
-        pub fn sendRequest(self: Self, allocator: mem.Allocator, host: []const u8, path: []const u8) !void {
-            const req = try std.fmt.allocPrint(
-                allocator,
-                "GET {s} HTTP/1.1\r\n" ++
-                "Host: {s}\r\n" ++
+        // TODO: implement unique WebSocket key generation
+        pub fn sendRequest(
+            self: *Self,
+            path: []const u8,
+            request_headers: ?[]const [2][]const u8,
+            sec_websocket_key: []const u8,
+        ) !void {
+            // push http request line
+            try self.put("GET ");
+            try self.put(if (path.len == 0) "/" else path);
+            try self.put(" HTTP/1.1\r\n");
+
+            // push default headers
+            const default_headers =
                 "Pragma: no-cache\r\n" ++
                 "Cache-Control: no-cache\r\n" ++
                 "Connection: Upgrade\r\n" ++
                 "Upgrade: websocket\r\n" ++
-                "Sec-WebSocket-Version: 13\r\n" ++
-                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" ++
-                "\r\n",
-                .{path, host},
-            );
-            // the moment you fall in love with defer
-            defer allocator.free(req);
+                "Sec-WebSocket-Version: 13\r\n";
+            try self.put(default_headers);
 
-            return self.writer.writeAll(req);
+            // push websocket key
+            try self.put("Sec-WebSocket-Key: ");
+            try self.put(sec_websocket_key);
+            try self.put("\r\n");
+
+            // push user defined headers
+            if (request_headers) |headers| {
+                for (headers) |header| {
+                    try self.put(header[0]);
+                    try self.put(": ");
+                    try self.put(header[1]);
+                    try self.put("\r\n");
+                }
+            }
+
+            // send 'em all 
+            try self.put("\r\n");
+            return self.flush();
         }
 
         /// Write bytes that're buffered in Sender and reset the terminator.
@@ -134,34 +153,16 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
         // Send API
         // ----------------------------------
 
-        /// Send any kind of WebSocket messages.
-        pub fn send(self: *Self, opcode: Opcode, payload: ?[]const u8) !void {
-            if (payload) |data| {
-                return switch (opcode) {
-                    .text, .binary => self.regular(opcode, data),
-                    .ping, .pong => self.pingPong(opcode, data),
-                    .close => self.close(),
+        /// Send a WebSocket message.
+        pub fn send(self: *Self, opcode: Opcode, data: []const u8) !void {
+            return switch (opcode) {
+                .text, .binary => self.regular(opcode, data),
+                .ping, .pong => self.pingPong(opcode, data),
+                .close => self.close(),
 
-                    .continuation, .end => error.UseStreamInstead,
-                    else => error.UnknownOpcode,
-                };
-            }
-
-            // no payload
-            try self.putHeader(.{
-                .len = 0,
-                .opcode = switch (opcode) {
-                    .text, .binary,
-                    .ping, .pong,
-                    .close => opcode,
-
-                    .continuation, .end => return error.UseStreamInstead,
-                    else => return error.UnknownOpcode,
-                },
-                .fin = true,
-            });
-
-            return self.flush();
+                .continuation, .end => error.UseStreamInstead,
+                else => error.UnknownOpcode,
+            };
         }
 
         // text + binary messages

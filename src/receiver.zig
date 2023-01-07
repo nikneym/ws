@@ -28,12 +28,105 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
             opcode: Opcode = .text,
         };
 
-        // TODO
-        pub fn receiveResponse(self: Self) !void {
-            var buf: [4096]u8 = undefined;
+        /// Deallocate HTTP response headers and string hashmap.
+        pub fn freeHttpHeaders(
+            _: Self,
+            allocator: mem.Allocator,
+            headers: *std.StringHashMapUnmanaged([]const u8),
+        ) void {
+            defer headers.deinit(allocator);
+            var iter = headers.iterator();
+            while (iter.next()) |entry| {
+                //std.debug.print("{s}: {s}\n", .{entry.key_ptr.*, entry.value_ptr.*});
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+        }
+
+        /// Receive and allocate for HTTP headers, uses a StringHashMapUnmanaged([]const u8) to store the parsed headers.
+        pub fn receiveResponse(
+            self: Self,
+            allocator: mem.Allocator,
+            headers: *std.StringHashMapUnmanaged([]const u8),
+        ) !void {
+            errdefer self.freeHttpHeaders(allocator, headers);
+            var buf: [2048]u8 = undefined;
+            var i: usize = 0;
+            var state: enum { key, value } = .key;
+            var key_ptr: ?[]u8 = null;
+
+            // HTTP/1.1 101 Switching Protocols
+            const request_line = try self.reader.readUntilDelimiter(&buf, '\n');
+            if (request_line.len < 32) return error.FailedSwitchingProtocols;
+            if (!mem.eql(u8, request_line[0..32], "HTTP/1.1 101 Switching Protocols"))
+                return error.FailedSwitchingProtocols;
+
             while (true) {
-                const header = try self.reader.readUntilDelimiter(buf[0..], '\n');
-                if (header.len == 1) break;
+                const b = try self.reader.readByte();
+                switch (state) {
+                    .key => switch (b) {
+                        ':' => { // delimiter of key
+                            // make sure space comes afterwards
+                            if (try self.reader.readByte() == ' ') {
+                                key_ptr = try allocator.dupe(u8, buf[0..i]);
+                                i = 0;
+                                state = .value;
+                            } else {
+                                return error.BadHttpResponse;
+                            }
+                        },
+                        '\r' => {
+                            if (try self.reader.readByte() == '\n') break;
+                            return error.BadHttpResponse;
+                        },
+                        '\n' => break,
+
+                        else => {
+                            buf[i] = b;
+                            if (i < buf.len) {
+                                i += 1;
+                            } else {
+                                return error.HttpHeaderTooLong;
+                            }
+                        },
+                    },
+
+                    .value => switch (b) {
+                        '\r' => {
+                            // make sure '\n' comes afterwards
+                            if (try self.reader.readByte() == '\n') {
+                                if (key_ptr) |ptr| {
+                                    errdefer allocator.free(ptr);
+                                    if (headers.contains(ptr)) {
+                                        return error.RepeatingHttpHeader;
+                                        // FIXME: alternative
+                                        //const entry = headers.getEntry(ptr).?;
+                                        //allocator.free(entry.key_ptr.*);
+                                        //allocator.free(entry.value_ptr.*);
+                                    }
+
+                                    try headers.put(allocator, ptr, try allocator.dupe(u8, buf[0..i]));
+                                } else {
+                                    return error.BadHttpResponse;
+                                }
+
+                                i = 0;
+                                state = .key;
+                            } else {
+                                return error.BadHttpResponse;
+                            }
+                        },
+
+                        else => {
+                            buf[i] = b;
+                            if (i < buf.len) {
+                                i += 1;
+                            } else {
+                                return error.HttpHeaderTooLong;
+                            }
+                        },
+                    },
+                }
             }
         }
 

@@ -2,32 +2,30 @@ const std = @import("std");
 const net = std.net;
 const mem = std.mem;
 const io = std.io;
-
 const Uri = @import("zuri").Uri;
 
-const cli = @import("client.zig");
-pub const createClient = cli.createClient;
-pub const Client = cli.Client;
-
+// these can be used directly too
 pub const Connection = @import("connection.zig").Connection;
+pub const Header = [2][]const u8;
 
-pub fn connect(allocator: mem.Allocator, url: []const u8) !Connection {
+// TODO: implement TLS connection
+/// Open a new WebSocket connection.
+/// Allocator is used for DNS resolving of host and the storage of response headers.
+pub fn connect(allocator: mem.Allocator, url: []const u8, request_headers: ?[]const Header) !Connection {
     const uri = try Uri.parse(url, true);
 
-    if (!(mem.eql(u8, uri.scheme, "ws") or mem.eql(u8, uri.scheme, "wss")))
-        return error.UnknownScheme;
+    const port: u16 = uri.port orelse
+        if (mem.eql(u8, uri.scheme, "ws")) 80
+        else if (mem.eql(u8, uri.scheme, "wss")) 443
+        else return error.UnknownScheme;
 
-    var client = try switch (uri.host) {
+    var stream = try switch (uri.host) {
         .ip => |address| net.tcpConnectToAddress(address),
-        .name => |host| net.tcpConnectToHost(allocator, host, uri.port orelse 80),
+        .name => |host| net.tcpConnectToHost(allocator, host, port),
     };
+    errdefer stream.close();
 
-    const host = switch (uri.host) {
-        .ip => "", // FIXME
-        .name => |host| host,
-    };
-
-    return Connection.init(allocator, client, host, uri.path);
+    return Connection.init(allocator, stream, uri.path, request_headers);
 }
 
 pub fn main() !void {
@@ -35,15 +33,18 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var client = try connect(allocator, "ws://localhost:8080/");
-    defer client.deinit();
+    var client = try connect(allocator, "ws://localhost:8080", &.{
+        .{"Host",   "localhost"},
+        .{"Origin", "http://localhost/"},
+    });
+    defer client.deinit(allocator);
 
     while (true) {
         var msg = try client.receive();
         switch (msg.type) {
             .text => {
                 std.debug.print("received: {s}\n", .{msg.data});
-                try client.sendText(msg.data);
+                try client.send(.text, msg.data);
             },
 
             .ping => {
@@ -55,7 +56,7 @@ pub fn main() !void {
                 std.debug.print("close", .{});
                 break;
             },
-            
+
             else => {
                 std.debug.print("got {s}: {s}\n", .{@tagName(msg.type), msg.data});
             },
