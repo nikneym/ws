@@ -17,9 +17,12 @@ pub fn client(
     comptime write_buffer_size: usize,
 ) Client(@TypeOf(reader), @TypeOf(writer), read_buffer_size, write_buffer_size)
 {
+    var mask: [4]u8 = undefined;
+    std.crypto.random.bytes(&mask);
+
     return .{
         .receiver = .{ .reader = reader },
-        .sender = .{ .writer = writer },
+        .sender = .{ .writer = writer, .mask = mask },
     };
 }
 

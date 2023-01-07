@@ -4,6 +4,7 @@ const mem = std.mem;
 const io = std.io;
 
 const Client = @import("client.zig").Client;
+const client = @import("client.zig").client;
 
 const common = @import("common.zig");
 const Opcode = common.Opcode;
@@ -37,10 +38,13 @@ pub const Connection = struct {
 
         const ws_client = try allocator.create(WsClient);
         errdefer allocator.destroy(ws_client);
-        ws_client.* = .{
-            .receiver = .{ .reader = buffered_reader.reader() },
-            .sender = .{ .writer = writer },
-        };
+
+        ws_client.* = client(
+            buffered_reader.reader(),
+            writer,
+            READ_BUFFER_SIZE,
+            WRITE_BUFFER_SIZE,
+        );
 
         var self = Connection{
             .underlying_stream = underlying_stream,

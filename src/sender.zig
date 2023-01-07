@@ -14,11 +14,10 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
         const Self = @This();
 
         writer: Writer,
+        mask: [4]u8,
         // for buffered writes
         buffer: [capacity]u8 = undefined,
         end: usize = 0,
-        // TODO: randomly generate mask bytes
-        mask: [4]u8 = .{ 3, 5, 9, 1 },
 
         pub fn sendRequest(
             self: *Self,
