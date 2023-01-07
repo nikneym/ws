@@ -5,6 +5,8 @@ const io = std.io;
 const Uri = @import("zuri").Uri;
 
 // these can be used directly too
+pub const Client = @import("client.zig").Client;
+pub const client = @import("client.zig").client;
 pub const Connection = @import("connection.zig").Connection;
 pub const Header = [2][]const u8;
 
@@ -33,23 +35,23 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var client = try connect(allocator, "ws://localhost:8080", &.{
+    var cli = try connect(allocator, "ws://localhost:8080", &.{
         .{"Host",   "localhost"},
         .{"Origin", "http://localhost/"},
     });
-    defer client.deinit(allocator);
+    defer cli.deinit(allocator);
 
     while (true) {
-        var msg = try client.receive();
+        var msg = try cli.receive();
         switch (msg.type) {
             .text => {
                 std.debug.print("received: {s}\n", .{msg.data});
-                try client.send(.text, msg.data);
+                try cli.send(.text, msg.data);
             },
 
             .ping => {
                 std.debug.print("got ping! sending pong...\n", .{});
-                try client.pong();
+                try cli.pong();
             },
 
             .close => {
@@ -63,5 +65,5 @@ pub fn main() !void {
         }
     }
 
-    try client.close();
+    try cli.close();
 }
