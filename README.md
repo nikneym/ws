@@ -12,7 +12,7 @@ Features
 Example
 ===========
 By default, ws uses the `Stream` interface of `net` namespace.
-You can use your choice of stream by providing `Receiver` and `Sender` to it.
+You can use your choice of stream through `ws.Client` interface.
 ```zig
 const std = @import("std");
 const ws = @import("ws");
@@ -59,12 +59,11 @@ pub fn main() !void {
 Planned
 ===========
 - [ ] WebSocket server support
-- [ ] TLS support out of the box
-- [ ] Custom headers
+- [ ] TLS support out of the box (tracks `std.crypto.tls.Client`)
+- [x] Request & response headers
 - [ ] WebSocket Compression support
-- [ ] Maybe support for streaming input?
 
-Thanks
+Acknowledgements
 ===========
 This library wouldn't be possible without these cool projects & posts:
 * [truemedian/wz](https://github.com/truemedian/wz)
