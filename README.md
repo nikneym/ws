@@ -1,3 +1,5 @@
+![ws](https://github.com/nikneym/ws/blob/main/misc/logo.png)
+
 ws
 ===========
 a lightweight WebSocket library for Zig ⚡
