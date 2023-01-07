@@ -22,23 +22,34 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var client = try ws.connect(allocator, "ws://localhost:8080/");
-    defer client.deinit();
+    var client = try ws.connect(allocator, "ws://localhost:8080", &.{
+        .{"Host",   "localhost"},
+        .{"Origin", "http://localhost/"},
+    });
+    defer client.deinit(allocator);
 
-    var msg = try client.receive();
+    while (true) {
+        var msg = try client.receive();
+        switch (msg.type) {
+            .text => {
+                std.debug.print("received: {s}\n", .{msg.data});
+                try client.send(.text, msg.data);
+            },
 
-    switch (msg.type) {
-        .text => {
-            std.debug.print("received: {s}\n", .{msg.data});
-            try client.sendText(msg.data);
-        },
+            .ping => {
+                std.debug.print("got ping! sending pong...\n", .{});
+                try client.pong();
+            },
 
-        .ping => {
-            std.debug.print("got ping! sending pong...\n", .{});
-            try client.pong();
-        },
+            .close => {
+                std.debug.print("close", .{});
+                break;
+            },
 
-        else => unreachable,
+            else => {
+                std.debug.print("got {s}: {s}\n", .{@tagName(msg.type), msg.data});
+            },
+        }
     }
 
     try client.close();
