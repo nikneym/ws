@@ -20,7 +20,6 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
         // TODO: randomly generate mask bytes
         mask: [4]u8 = .{ 3, 5, 9, 1 },
 
-        // TODO: implement unique WebSocket key generation
         pub fn sendRequest(
             self: *Self,
             path: []const u8,
