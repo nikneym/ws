@@ -1,10 +1,10 @@
+<p align="center">
+  <img src="https://github.com/nikneym/ws/blob/main/misc/logo.png" alt="ws" width="60%" height="30%" />
+</p>
+
 ws
 ===========
 a lightweight WebSocket library for Zig ⚡
-
-<p align="center">
-  <img src="https://github.com/nikneym/ws/blob/main/misc/logo.png" alt="ws"/>
-</p>
 
 Features
 ===========
