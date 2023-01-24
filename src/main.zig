@@ -8,6 +8,7 @@ const Uri = @import("zuri").Uri;
 pub const Client = @import("client.zig").Client;
 pub const client = @import("client.zig").client;
 pub const Connection = @import("connection.zig").Connection;
+pub const Server = @import("server.zig").Server;
 pub const Header = [2][]const u8;
 
 // TODO: implement TLS connection
@@ -35,35 +36,9 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var cli = try connect(allocator, "ws://localhost:8080", &.{
-        .{"Host",   "localhost"},
-        .{"Origin", "http://localhost/"},
-    });
-    defer cli.deinit(allocator);
+    var server = try Server.init("/chat", try net.Address.parseIp("127.0.0.1", 8080));
+    defer server.deinit();
 
-    while (true) {
-        var msg = try cli.receive();
-        switch (msg.type) {
-            .text => {
-                std.debug.print("received: {s}\n", .{msg.data});
-                try cli.send(.text, msg.data);
-            },
-
-            .ping => {
-                std.debug.print("got ping! sending pong...\n", .{});
-                try cli.pong();
-            },
-
-            .close => {
-                std.debug.print("close", .{});
-                break;
-            },
-
-            else => {
-                std.debug.print("got {s}: {s}\n", .{@tagName(msg.type), msg.data});
-            },
-        }
-    }
-
-    try cli.close();
+    var cli = try server.accept(allocator);
+    defer cli.deinit();
 }

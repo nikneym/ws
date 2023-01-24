@@ -43,6 +43,7 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
             }
         }
 
+        // FIXME: Share same parsing logic with incoming connections
         /// Receive and allocate for HTTP headers, uses a StringHashMapUnmanaged([]const u8) to store the parsed headers.
         pub fn receiveResponse(
             self: Self,
