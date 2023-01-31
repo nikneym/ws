@@ -1,10 +1,11 @@
 const std = @import("std");
 const mem = std.mem;
 const net = std.net;
-const http = std.http;
 const bs64 = std.base64.standard;
 const Sha1 = std.crypto.hash.Sha1;
 const IncomingConnection = @import("incoming_connection.zig").IncomingConnection;
+
+const client = @import("client.zig").client;
 
 const GET_ = @bitCast(u32, [4]u8{'G', 'E', 'T', ' '});
 const HTTP = @bitCast(u32, [4]u8{'H', 'T', 'T', 'P'});
@@ -14,25 +15,20 @@ const MAGIC_STRING = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const CONNECTION = "Upgrade";
 const UPGRADE = "websocket";
 const SEC_WEBSOCKET_VERSION = "13";
-const BARE_REQUEST = "HTTP/1.1 101 Switching Protocols\r\n" ++
+const BARE_RESPONSE = "HTTP/1.1 101 Switching Protocols\r\n" ++
                      "Upgrade: " ++ UPGRADE ++ "\r\n" ++
                      "Connection: " ++ CONNECTION ++ "\r\n" ++
                      "Sec-WebSocket-Accept: "; // this field will be filled in sendHttpResponse
 
 const ENCODED_BUFFER_SIZE = bs64.Encoder.calcSize(Sha1.digest_length);
 
-pub const RequestState = enum {
-    parseMethod,
-    parseUrl,
-    parseHttpVersion,
-    parseHeaderKey,
-    parseHeaderValue,
-};
-
 // WebSocket server implementation over net.StreamServer
 pub const Server = struct {
     underlying_server: net.StreamServer,
     route: []const u8,
+
+    const BufferedReader = std.io.BufferedReader(4096, net.Stream.Reader);
+    const Reader = BufferedReader.Reader;
 
     pub fn init(route: []const u8, address: net.Address) !Server {
         var server = net.StreamServer.init(.{ .reuse_address = true });
@@ -49,6 +45,14 @@ pub const Server = struct {
         self.underlying_server.deinit();
     }
 
+    const RequestState = enum {
+        parseMethod,
+        parseUrl,
+        parseHttpVersion,
+        parseHeaderKey,
+        parseHeaderValue,
+    };
+
     pub const ParseError = error{
         MalformedRequest,
         RequestTooBig,
@@ -61,7 +65,7 @@ pub const Server = struct {
     // parses incoming HTTP request. this does not check must-have WebSocket headers
     fn parseHttpRequest(
         self: Server,
-        reader: net.Stream.Reader,
+        reader: Reader,
         buf: []u8,
         headers: *std.StringHashMap([]const u8),
     ) ParseError!void {
@@ -209,42 +213,49 @@ pub const Server = struct {
     }
 
     pub fn accept(self: *Server, allocator: mem.Allocator) !IncomingConnection {
-        var client = try self.underlying_server.accept();
-        errdefer client.stream.close();
-        const stream = client.stream;
-        const reader = stream.reader();
-        const writer = stream.writer();
+        var connection = try self.underlying_server.accept();
+        var buffered_reader = BufferedReader{ .unbuffered_reader = connection.stream.reader() };
 
         // create a WebSocket client out of stream
         var ws_client = IncomingConnection{
-            .reader = reader,
+            .underlying_stream = connection.stream,
+            .address = connection.address,
+            .buffered_reader = buffered_reader,
             .headers = std.StringHashMap([]const u8).init(allocator),
+            .ws_client = client(
+                buffered_reader.reader(),
+                connection.stream.writer(),
+                8192,
+                4096,
+            )
         };
         errdefer ws_client.deinit();
 
-        self.parseHttpRequest(ws_client.reader, &ws_client.req_buffer, &ws_client.headers) catch |e|
-            switch (e) {
-                error.MalformedRequest,
-                error.RequestTooBig,
-                error.UnknownRoute,
-                error.UnknownHttpVersion => {
-                    try sendFailResponse(writer);
-                    return e;
-                },
+        const reader = ws_client.buffered_reader.reader();
+        const writer = ws_client.underlying_stream.writer();
 
-                // if it got here, we just can't send HTTP response
-                else => return e,
-            };
+        self.parseHttpRequest(reader, &ws_client.req_buffer, &ws_client.headers) catch |e| switch (e) {
+            error.MalformedRequest,
+            error.RequestTooBig,
+            error.UnknownRoute,
+            error.UnknownHttpVersion => {
+                sendFailResponse(writer) catch {};
+                return e;
+            },
+
+            // if it got here, we just can't send HTTP response
+            else => return e,
+        };
 
         checkRequestHeaders(ws_client.headers) catch |e| {
-            try sendFailResponse(writer);
+            sendFailResponse(writer) catch {};
             return e;
         };
 
         // create Sec-WebSocket-Accept header value
         // TODO: check if a given value is valid base64
         const sec_websocket_key = ws_client.headers.get("Sec-WebSocket-Key") orelse {
-            try sendFailResponse(writer);
+            sendFailResponse(writer) catch {};
             return error.MissingHeader;
         };
         //if (sec_websocket_key.len != 24)
@@ -276,14 +287,15 @@ pub const Server = struct {
         );
     }
 
-    fn sendSuccessResponse(
-        writer: net.Stream.Writer,
-        sec_websocket_accept: []const u8,
-    ) !void {
-        try writer.writeAll(BARE_REQUEST);
-        try writer.writeAll(sec_websocket_accept);
-        try writer.writeAll("\r\n");
+    fn sendSuccessResponse(writer: net.Stream.Writer, sec_websocket_accept: []const u8) !void {
+        // implementation reference from std.http.client.zig#764
+        var buf = try std.BoundedArray(u8, 4096).init(0);
+        try buf.appendSlice(BARE_RESPONSE);
+        try buf.appendSlice(sec_websocket_accept);
+        try buf.appendSlice("\r\n");
         // additional headers should come here
-        try writer.writeAll("\r\n");
+        try buf.appendSlice("\r\n");
+
+        try writer.writeAll(buf.slice());
     }
 };
