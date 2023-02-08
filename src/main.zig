@@ -2,7 +2,6 @@ const std = @import("std");
 const net = std.net;
 const mem = std.mem;
 const io = std.io;
-const Uri = @import("zuri").Uri;
 
 // these can be used directly too
 pub const Client = @import("client.zig").Client;
@@ -10,20 +9,30 @@ pub const client = @import("client.zig").client;
 pub const Connection = @import("connection.zig").Connection;
 pub const Header = [2][]const u8;
 
+pub const Address = union(enum) {
+    ip: std.net.Address,
+    host: []const u8,
+
+    pub fn resolve(host: []const u8, port: u16) Address {
+        const ip = std.net.Address.parseIp(host, port) catch return Address{ .host = host };
+        return Address{ .ip = ip };
+    }
+};
+
 // TODO: implement TLS connection
 /// Open a new WebSocket connection.
 /// Allocator is used for DNS resolving of host and the storage of response headers.
 pub fn connect(allocator: mem.Allocator, url: []const u8, request_headers: ?[]const Header) !Connection {
-    const uri = try Uri.parse(url, true);
+    const uri = try std.Uri.parse(url);
 
     const port: u16 = uri.port orelse
         if (mem.eql(u8, uri.scheme, "ws")) 80
         else if (mem.eql(u8, uri.scheme, "wss")) 443
         else return error.UnknownScheme;
 
-    var stream = try switch (uri.host) {
-        .ip => |address| net.tcpConnectToAddress(address),
-        .name => |host| net.tcpConnectToHost(allocator, host, port),
+    var stream = try switch (Address.resolve(uri.host orelse return error.MissingHost, port)) {
+        .ip => |ip| net.tcpConnectToAddress(ip),
+        .host => |host| net.tcpConnectToHost(allocator, host, port),
     };
     errdefer stream.close();
 
