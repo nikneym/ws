@@ -33,7 +33,7 @@ pub fn main() !void {
     defer client.deinit(allocator);
 
     while (true) {
-        var msg = try client.receive();
+        const msg = try client.receive();
         switch (msg.type) {
             .text => {
                 std.debug.print("received: {s}\n", .{msg.data});

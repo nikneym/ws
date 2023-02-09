@@ -51,7 +51,7 @@ pub fn main() !void {
     defer cli.deinit(allocator);
 
     while (true) {
-        var msg = try cli.receive();
+        const msg = try cli.receive();
         switch (msg.type) {
             .text => {
                 std.debug.print("received: {s}\n", .{msg.data});
