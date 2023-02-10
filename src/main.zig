@@ -39,10 +39,8 @@ pub fn connect(allocator: mem.Allocator, url: []const u8, request_headers: ?[]co
     return Connection.init(allocator, stream, uri.path, request_headers);
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+test "Simple connection to :8080" {
+    const allocator = std.testing.allocator;
 
     var cli = try connect(allocator, "ws://localhost:8080", &.{
         .{"Host",   "localhost"},
