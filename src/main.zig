@@ -22,9 +22,7 @@ pub const Address = union(enum) {
 // TODO: implement TLS connection
 /// Open a new WebSocket connection.
 /// Allocator is used for DNS resolving of host and the storage of response headers.
-pub fn connect(allocator: mem.Allocator, url: []const u8, request_headers: ?[]const Header) !Connection {
-    const uri = try std.Uri.parse(url);
-
+pub fn connect(allocator: mem.Allocator, uri: std.Uri, request_headers: ?[]const Header) !Connection {
     const port: u16 = uri.port orelse
         if (mem.eql(u8, uri.scheme, "ws")) 80
         else if (mem.eql(u8, uri.scheme, "wss")) 443
@@ -42,7 +40,7 @@ pub fn connect(allocator: mem.Allocator, url: []const u8, request_headers: ?[]co
 test "Simple connection to :8080" {
     const allocator = std.testing.allocator;
 
-    var cli = try connect(allocator, "ws://localhost:8080", &.{
+    var cli = try connect(allocator, try std.Uri.parse("ws://localhost:8080"), &.{
         .{"Host",   "localhost"},
         .{"Origin", "http://localhost/"},
     });
