@@ -18,31 +18,26 @@ Example
 By default, ws uses the `Stream` interface of `net` namespace.
 You can use your choice of stream through `ws.Client` interface.
 ```zig
-const std = @import("std");
-const ws = @import("ws");
+test "Simple connection to :8080" {
+    const allocator = std.testing.allocator;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var client = try ws.connect(allocator, "ws://localhost:8080", &.{
+    var cli = try connect(allocator, try std.Uri.parse("ws://localhost:8080"), &.{
         .{"Host",   "localhost"},
         .{"Origin", "http://localhost/"},
     });
-    defer client.deinit(allocator);
+    defer cli.deinit(allocator);
 
     while (true) {
-        const msg = try client.receive();
+        const msg = try cli.receive();
         switch (msg.type) {
             .text => {
                 std.debug.print("received: {s}\n", .{msg.data});
-                try client.send(.text, msg.data);
+                try cli.send(.text, msg.data);
             },
 
             .ping => {
                 std.debug.print("got ping! sending pong...\n", .{});
-                try client.pong();
+                try cli.pong();
             },
 
             .close => {
@@ -56,7 +51,7 @@ pub fn main() !void {
         }
     }
 
-    try client.close();
+    try cli.close();
 }
 ```
 
