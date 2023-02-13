@@ -41,7 +41,7 @@ pub fn connect(allocator: mem.Allocator, uri: std.Uri, request_headers: ?[]const
 test "Server on :8080" {
     const allocator = std.testing.allocator;
 
-    var server = try Server.init("/chat", try net.Address.parseIp("127.0.0.1", 8080));
+    var server = try Server.init(try net.Address.parseIp("127.0.0.1", 8080), "/chat");
     defer server.deinit();
 
     var cli = try server.accept(allocator);

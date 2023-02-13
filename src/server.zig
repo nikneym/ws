@@ -28,7 +28,7 @@ pub const Server = struct {
     const BufferedReader = std.io.BufferedReader(4096, net.Stream.Reader);
     const Reader = net.Stream.Reader;
 
-    pub fn init(route: []const u8, address: net.Address) !Server {
+    pub fn init(address: net.Address, route: []const u8) !Server {
         var server = net.StreamServer.init(.{ .reuse_address = true });
         errdefer server.deinit();
         try server.listen(address);
