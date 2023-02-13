@@ -45,5 +45,23 @@ test "Server on :8080" {
     defer server.deinit();
 
     var cli = try server.accept(allocator);
-    defer cli.deinit();
+    defer cli.deinit(allocator);
+
+    while (true) {
+        const message = try cli.receiver.receive();
+        switch (message.type) {
+            .binary => {
+                std.debug.print("binary: {any}\n", .{ message.data });
+            },
+
+            .close => {
+                std.debug.print("close: {s} code: {?}\n", .{ message.data, message.code });
+                break;
+            },
+
+            else => {
+                std.debug.print("{s}: {s}\n", .{ @tagName(message.type), message.data });
+            },
+        }
+    }
 }

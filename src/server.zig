@@ -5,8 +5,6 @@ const bs64 = std.base64.standard;
 const Sha1 = std.crypto.hash.Sha1;
 const IncomingConnection = @import("incoming_connection.zig").IncomingConnection;
 
-const client = @import("client.zig").client;
-
 const GET_ = @bitCast(u32, [4]u8{'G', 'E', 'T', ' '});
 const HTTP = @bitCast(u32, [4]u8{'H', 'T', 'T', 'P'});
 const V1_1 = @bitCast(u32, [4]u8{'/', '1', '.', '1'});
@@ -28,7 +26,7 @@ pub const Server = struct {
     route: []const u8,
 
     const BufferedReader = std.io.BufferedReader(4096, net.Stream.Reader);
-    const Reader = BufferedReader.Reader;
+    const Reader = net.Stream.Reader;
 
     pub fn init(route: []const u8, address: net.Address) !Server {
         var server = net.StreamServer.init(.{ .reuse_address = true });
@@ -214,32 +212,27 @@ pub const Server = struct {
 
     pub fn accept(self: *Server, allocator: mem.Allocator) !IncomingConnection {
         var connection = try self.underlying_server.accept();
-        var buffered_reader = BufferedReader{ .unbuffered_reader = connection.stream.reader() };
+        //var buffered_reader = BufferedReader{ .unbuffered_reader = connection.stream.reader() };
+        const writer = connection.stream.writer();
+        const reader = connection.stream.reader();
 
         // create a WebSocket client out of stream
         var ws_client = IncomingConnection{
             .underlying_stream = connection.stream,
             .address = connection.address,
-            .buffered_reader = buffered_reader,
+            //.buffered_reader = buffered_reader,
             .headers = std.StringHashMap([]const u8).init(allocator),
-            .ws_client = client(
-                buffered_reader.reader(),
-                connection.stream.writer(),
-                8192,
-                4096,
-            )
+            .sender = .{ .writer = writer, .mask = undefined },
+            .receiver = .{ .reader = reader, .buffer = try allocator.alloc(u8, 1024 * 4) },
         };
-        errdefer ws_client.deinit();
-
-        const reader = ws_client.buffered_reader.reader();
-        const writer = ws_client.underlying_stream.writer();
+        errdefer ws_client.deinit(allocator);
 
         self.parseHttpRequest(reader, &ws_client.req_buffer, &ws_client.headers) catch |e| switch (e) {
             error.MalformedRequest,
             error.RequestTooBig,
             error.UnknownRoute,
             error.UnknownHttpVersion => {
-                sendFailResponse(writer) catch {};
+                try sendFailResponse(writer);
                 return e;
             },
 
@@ -248,14 +241,14 @@ pub const Server = struct {
         };
 
         checkRequestHeaders(ws_client.headers) catch |e| {
-            sendFailResponse(writer) catch {};
+            try sendFailResponse(writer);
             return e;
         };
 
         // create Sec-WebSocket-Accept header value
         // TODO: check if a given value is valid base64
         const sec_websocket_key = ws_client.headers.get("Sec-WebSocket-Key") orelse {
-            sendFailResponse(writer) catch {};
+            try sendFailResponse(writer);
             return error.MissingHeader;
         };
         //if (sec_websocket_key.len != 24)
