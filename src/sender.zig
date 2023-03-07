@@ -110,7 +110,7 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
         }
 
         fn maskBytes(self: Self, buf: []u8, source: []const u8, pos: usize) void {
-            for (source) |c, i|
+            for (source, 0..) |c, i|
                 buf[i] = c ^ self.mask[(i + pos) % 4];
         }
 
