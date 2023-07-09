@@ -80,19 +80,19 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
         fn putHeader(self: *Self, header: Header) Writer.Error!void {
             var buf: [14]u8 = undefined;
 
-            buf[0] = @as(u8, @enumToInt(header.opcode));
+            buf[0] = @as(u8, @intFromEnum(header.opcode));
             if (header.fin) buf[0] |= 0x80;
 
             buf[1] = 0x80;
             if (header.len < 126) {
-                buf[1] |= @truncate(u8, header.len);
+                buf[1] |= @truncate(header.len);
                 mem.copy(u8, buf[2..], &self.mask);
 
                 // 2 + 4
                 return self.put(buf[0..6]);
             } else if (header.len < 65536) {
                 buf[1] |= 126;
-                mem.writeIntBig(u16, buf[2..4], @truncate(u16, header.len));
+                mem.writeIntBig(u16, buf[2..4], @as(u16, @truncate(header.len)));
                 mem.copy(u8, buf[4..], &self.mask);
 
                 // 2 + 2 + 4

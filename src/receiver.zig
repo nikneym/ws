@@ -143,7 +143,7 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
                 return error.MaskedMessageFromServer; // FIXME: should this be allowed?
 
             // get length from variable length
-            const var_length = @truncate(u7, buf[1] & 0x7F);
+            const var_length: u7 = @truncate(buf[1] & 0x7F);
             const length = try self.getLength(var_length);
 
             const b = buf[0];
@@ -153,7 +153,7 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
             const rsv3 = b & 0x10 != 0;
 
             const op = b & 0x0F;
-            const opcode = @intToEnum(Opcode, @truncate(u4, op));
+            const opcode: Opcode = @enumFromInt(@as(u4, @truncate(op)));
 
             return Header{
                 .len = length,
