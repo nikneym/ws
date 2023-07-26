@@ -34,7 +34,7 @@ pub fn connect(allocator: mem.Allocator, uri: std.Uri, request_headers: ?[]const
     };
     errdefer stream.close();
 
-    return Connection.init(allocator, stream, uri.path, request_headers);
+    return Connection.init(allocator, stream, uri, request_headers);
 }
 
 test "Simple connection to :8080" {

@@ -52,7 +52,7 @@ pub fn Client(
         pub fn handshake(
             self: *Self,
             allocator: mem.Allocator,
-            path: []const u8,
+            uri: std.Uri,
             request_headers: ?[]const [2][]const u8,
             response_headers: *std.StringHashMapUnmanaged([]const u8),
         ) !void {
@@ -61,7 +61,7 @@ pub fn Client(
             std.crypto.random.bytes(buf[0..16]);
             const key = std.base64.standard.Encoder.encode(&buf, buf[0..16]);
 
-            try self.sender.sendRequest(path, request_headers, key);
+            try self.sender.sendRequest(uri, request_headers, key);
             try self.receiver.receiveResponse(allocator, response_headers);
             errdefer self.receiver.freeHttpHeaders(allocator, response_headers);
 
