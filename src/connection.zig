@@ -30,7 +30,7 @@ pub const Connection = struct {
     pub fn init(
         allocator: mem.Allocator,
         underlying_stream: net.Stream,
-        path: []const u8,
+        uri: std.Uri,
         request_headers: ?[]const [2][]const u8,
     ) !Connection {
         var buffered_reader = BufferedReader{ .unbuffered_reader = underlying_stream.reader() };
@@ -53,7 +53,7 @@ pub const Connection = struct {
             .headers = .{},
         };
 
-        try self.ws_client.handshake(allocator, path, request_headers, &self.headers);
+        try self.ws_client.handshake(allocator, uri, request_headers, &self.headers);
         return self;
     }
 

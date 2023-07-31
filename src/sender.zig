@@ -9,6 +9,11 @@ const MAX_CTL_FRAME_LENGTH = common.MAX_CTL_FRAME_LENGTH;
 const MASK_BUFFER_SIZE: usize = 1024;
 const DEFAULT_CLOSE_CODE: u16 = 1000;
 
+fn getUriFullPath(uri: std.Uri) ![]const u8 {
+    var buf: [MASK_BUFFER_SIZE]u8 = undefined;
+    return try std.fmt.bufPrint(&buf, "{}", .{uri});
+}
+
 pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
     return struct {
         const Self = @This();
@@ -21,13 +26,13 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
 
         pub fn sendRequest(
             self: *Self,
-            path: []const u8,
+            uri: std.Uri,
             request_headers: ?[]const [2][]const u8,
             sec_websocket_key: []const u8,
         ) !void {
             // push http request line
             try self.put("GET ");
-            try self.put(if (path.len == 0) "/" else path);
+            try self.put(try getUriFullPath(uri));
             try self.put(" HTTP/1.1\r\n");
 
             // push default headers
@@ -249,4 +254,40 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
             return self.flush();
         }
     };
+}
+
+test "std.Uri processing results in expected paths" {
+    const uris = [_]std.Uri {
+        try std.Uri.parse("ws://localhost"),
+        try std.Uri.parse("ws://localhost/"),
+        try std.Uri.parse("ws://localhost?query=example"),
+        try std.Uri.parse("ws://localhost/?query=example"),
+        try std.Uri.parse("ws://localhost/?query1=&&something&query2=somethingelse"),
+        try std.Uri.parse("ws://localhost/?query1=something with spaces&query2=somethingelse"),
+        try std.Uri.parse("ws://localhost:8080"),
+        try std.Uri.parse("ws://localhost:8080/"),
+        try std.Uri.parse("ws://localhost:8080?query=example"),
+        try std.Uri.parse("ws://localhost:8080/?query=example"),
+        try std.Uri.parse("ws://localhost:8080/?query1=&&something&query2=somethingelse"),
+        try std.Uri.parse("ws://localhost:8080/?query1=something with spaces&query2=somethingelse"),
+    };
+
+    const paths = [_][]const u8{
+        "/",
+        "/",
+        "/?query=example",
+        "/?query=example",
+        "/?query1=&&something&query2=somethingelse",
+        "/?query1=something%20with%20spaces&query2=somethingelse",
+        "/",
+        "/",
+        "/?query=example",
+        "/?query=example",
+        "/?query1=&&something&query2=somethingelse",
+        "/?query1=something%20with%20spaces&query2=somethingelse",
+    };
+    
+    for (uris, paths) |uri, path| {
+        try std.testing.expectEqualSlices(u8, path, try getUriFullPath(uri));
+    }
 }
