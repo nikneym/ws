@@ -25,8 +25,8 @@ pub const Connection = struct {
     const WsClient = Client(Reader, Writer);
     pub const Options = struct {
         extra_headers: []const common.HttpHeader = &.{},
-        read_buffer_size: usize = 4096 * 100,
-        write_buffer_size: usize = 4096 * 10,
+        read_buffer_size: usize = 1 << 16,
+        write_buffer_size: usize = 1 << 14,
     };
 
     pub fn init(

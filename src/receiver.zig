@@ -138,10 +138,6 @@ pub fn Receiver(comptime Reader: type) type {
             const len = try self.reader.readAll(buf);
             if (len < 2) return error.EndOfStream;
 
-            const is_masked = buf[1] & 0x80 != 0;
-            if (is_masked)
-                return error.MaskedMessageFromServer; // FIXME: should this be allowed?
-
             // get length from variable length
             const var_length: u7 = @truncate(buf[1] & 0x7F);
             const length = try self.getLength(var_length);

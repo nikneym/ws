@@ -29,7 +29,8 @@ pub const ConnectOptions = struct {
 };
 
 /// Open a new WebSocket connection.
-/// Allocator is used for DNS resolving of host and the storage of response headers.
+/// Allocator is used for DNS resolving of host and the storage of response headers and for
+/// read/write buffers.
 pub fn connect(allocator: mem.Allocator, uri: std.Uri, options: ConnectOptions) !Connection {
     if (uri.host == null) return error.MissingHost;
 
