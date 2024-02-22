@@ -11,12 +11,12 @@ const MAX_CTL_FRAME_LENGTH = common.MAX_CTL_FRAME_LENGTH;
 // server should not be sending masked messages.
 const MAX_HEADER_SIZE = 10;
 
-pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
+pub fn Receiver(comptime Reader: type) type {
     return struct {
         const Self = @This();
 
         reader: Reader,
-        buffer: [capacity]u8 = undefined,
+        buffer: []u8,
         header_buffer: [MAX_HEADER_SIZE]u8 = undefined,
         // specified for ping, pong and close frames.
         control_buffer: [MAX_CTL_FRAME_LENGTH]u8 = undefined,

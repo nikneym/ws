@@ -25,14 +25,13 @@ fn getUriFullPath(uri: std.Uri) ![]const u8 {
     return uri_buf[0..stream.pos];
 }
 
-pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
+pub fn Sender(comptime Writer: type) type {
     return struct {
         const Self = @This();
 
         writer: Writer,
         mask: [4]u8,
-        // for buffered writes
-        buffer: [capacity]u8 = undefined,
+        buffer: []u8,
         end: usize = 0,
 
         pub fn sendRequest(

@@ -13,15 +13,15 @@ const Sender = @import("sender.zig").Sender;
 pub fn client(
     reader: anytype,
     writer: anytype,
-    comptime read_buffer_size: usize,
-    comptime write_buffer_size: usize,
-) Client(@TypeOf(reader), @TypeOf(writer), read_buffer_size, write_buffer_size) {
+    read_buffer: []u8,
+    write_buffer: []u8,
+) Client(@TypeOf(reader), @TypeOf(writer)) {
     var mask: [4]u8 = undefined;
     std.crypto.random.bytes(&mask);
 
     return .{
-        .receiver = .{ .reader = reader },
-        .sender = .{ .writer = writer, .mask = mask },
+        .receiver = .{ .reader = reader, .buffer = read_buffer },
+        .sender = .{ .writer = writer, .mask = mask, .buffer = write_buffer },
     };
 }
 
@@ -30,14 +30,12 @@ pub fn client(
 pub fn Client(
     comptime Reader: type,
     comptime Writer: type,
-    comptime read_buffer_size: usize,
-    comptime write_buffer_size: usize,
 ) type {
     return struct {
         const Self = @This();
 
-        receiver: Receiver(Reader, read_buffer_size),
-        sender: Sender(Writer, write_buffer_size),
+        receiver: Receiver(Reader),
+        sender: Sender(Writer),
 
         pub fn deinit(
             self: Self,
@@ -45,6 +43,8 @@ pub fn Client(
             headers: *std.StringHashMapUnmanaged([]const u8),
         ) void {
             self.receiver.freeHttpHeaders(allocator, headers);
+            allocator.free(self.receiver.buffer);
+            allocator.free(self.sender.buffer);
         }
 
         pub fn handshake(

@@ -10,9 +10,6 @@ const io = std.io;
 const Opcode = common.Opcode;
 const Message = common.Message;
 
-const READ_BUFFER_SIZE: usize = 1024 * 8;
-const WRITE_BUFFER_SIZE: usize = 1024 * 4;
-
 /// This is the direct implementation of ws over regular net.Stream.
 /// The Connection object will always use the current Stream implementation of net namespace.
 pub const Connection = struct {
@@ -22,16 +19,21 @@ pub const Connection = struct {
     headers: std.StringHashMapUnmanaged([]const u8),
 
     /// general types
-    const WsClient = Client(Reader, Writer, READ_BUFFER_SIZE, WRITE_BUFFER_SIZE);
-    const BufferedReader = io.BufferedReader(4096, Stream.Reader);
     const Reader = BufferedReader.Reader;
+    const BufferedReader = io.BufferedReader(4096, Stream.Reader);
     const Writer = Stream.Writer;
+    const WsClient = Client(Reader, Writer);
+    pub const Options = struct {
+        extra_headers: []const common.HttpHeader = &.{},
+        read_buffer_size: usize = 4096 * 100,
+        write_buffer_size: usize = 4096 * 10,
+    };
 
     pub fn init(
         allocator: mem.Allocator,
         underlying_stream: Stream,
         uri: std.Uri,
-        extra_headers: []const common.HttpHeader,
+        options: Options,
     ) !Connection {
         var owned_stream = underlying_stream;
         var buffered_reader = BufferedReader{ .unbuffered_reader = owned_stream.reader() };
@@ -40,11 +42,14 @@ pub const Connection = struct {
         const ws_client = try allocator.create(WsClient);
         errdefer allocator.destroy(ws_client);
 
+        const read_buffer = try allocator.alloc(u8, options.read_buffer_size);
+        const write_buffer = try allocator.alloc(u8, options.write_buffer_size);
+
         ws_client.* = client(
             buffered_reader.reader(),
             writer,
-            READ_BUFFER_SIZE,
-            WRITE_BUFFER_SIZE,
+            read_buffer,
+            write_buffer,
         );
 
         var self = Connection{
@@ -54,7 +59,7 @@ pub const Connection = struct {
             .headers = .{},
         };
 
-        try self.ws_client.handshake(allocator, uri, extra_headers, &self.headers);
+        try self.ws_client.handshake(allocator, uri, options.extra_headers, &self.headers);
         return self;
     }
 

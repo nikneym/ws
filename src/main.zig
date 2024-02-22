@@ -24,8 +24,8 @@ pub const Address = union(enum) {
 };
 
 pub const ConnectOptions = struct {
-    extra_headers: []const common.HttpHeader = &.{},
     ca_bundle: ?std.crypto.Certificate.Bundle = null,
+    connection_options: Connection.Options = .{},
 };
 
 /// Open a new WebSocket connection.
@@ -60,13 +60,13 @@ pub fn connect(allocator: mem.Allocator, uri: std.Uri, options: ConnectOptions) 
 
     const stream = Stream{ .net_stream = net_stream, .tls_client = tls_client };
 
-    return Connection.init(allocator, stream, uri, options.extra_headers);
+    return Connection.init(allocator, stream, uri, options.connection_options);
 }
 
-test "plain connection to :8080" {
+test "wss://echo.websocket.org" {
     const allocator = std.testing.allocator;
 
-    var ws = try connect(allocator, try std.Uri.parse("ws://localhost:8080/asdf"), .{});
+    var ws = try connect(allocator, try std.Uri.parse("wss://echo.websocket.org"), .{});
     defer ws.deinit(allocator);
 
     while (true) {
