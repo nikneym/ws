@@ -1,7 +1,7 @@
 // maximum control frame length
 pub const MAX_CTL_FRAME_LENGTH = 125;
 
-pub const Opcode = enum (u4) {
+pub const Opcode = enum(u4) {
     continuation = 0x0,
     text = 0x1,
     binary = 0x2,
@@ -30,14 +30,12 @@ pub const Message = struct {
     data: []const u8,
     code: ?u16, // only used in close messages
 
-    pub const Error = error{FragmentedMessage, UnknownOpcode};
+    pub const Error = error{ FragmentedMessage, UnknownOpcode };
 
     /// Create a WebSocket message from given fields.
     pub fn from(opcode: Opcode, data: []const u8, code: ?u16) Message.Error!Message {
         switch (opcode) {
-            .text, .binary,
-            .ping, .pong,
-            .close => {},
+            .text, .binary, .ping, .pong, .close => {},
 
             .continuation => return error.FragmentedMessage,
             else => return error.UnknownOpcode,
@@ -45,4 +43,10 @@ pub const Message = struct {
 
         return Message{ .type = opcode, .data = data, .code = code };
     }
+};
+
+// Replace with std.http.Header after https://github.com/ziglang/zig/pull/18955
+pub const HttpHeader = struct {
+    name: []const u8,
+    value: []const u8,
 };

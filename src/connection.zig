@@ -1,12 +1,12 @@
 const std = @import("std");
+const Client = @import("client.zig").Client;
+const client = @import("client.zig").client;
+const common = @import("common.zig");
+const Stream = @import("./stream.zig");
+
 const net = std.net;
 const mem = std.mem;
 const io = std.io;
-
-const Client = @import("client.zig").Client;
-const client = @import("client.zig").client;
-
-const common = @import("common.zig");
 const Opcode = common.Opcode;
 const Message = common.Message;
 
@@ -16,25 +16,26 @@ const WRITE_BUFFER_SIZE: usize = 1024 * 4;
 /// This is the direct implementation of ws over regular net.Stream.
 /// The Connection object will always use the current Stream implementation of net namespace.
 pub const Connection = struct {
-    underlying_stream: net.Stream,
+    underlying_stream: Stream,
     ws_client: *WsClient,
     buffered_reader: BufferedReader,
     headers: std.StringHashMapUnmanaged([]const u8),
 
     /// general types
     const WsClient = Client(Reader, Writer, READ_BUFFER_SIZE, WRITE_BUFFER_SIZE);
-    const BufferedReader = io.BufferedReader(4096, net.Stream.Reader);
+    const BufferedReader = io.BufferedReader(4096, Stream.Reader);
     const Reader = BufferedReader.Reader;
-    const Writer = net.Stream.Writer;
+    const Writer = Stream.Writer;
 
     pub fn init(
         allocator: mem.Allocator,
-        underlying_stream: net.Stream,
+        underlying_stream: Stream,
         uri: std.Uri,
-        request_headers: ?[]const [2][]const u8,
+        extra_headers: []const common.HttpHeader,
     ) !Connection {
-        var buffered_reader = BufferedReader{ .unbuffered_reader = underlying_stream.reader() };
-        var writer = underlying_stream.writer();
+        var owned_stream = underlying_stream;
+        var buffered_reader = BufferedReader{ .unbuffered_reader = owned_stream.reader() };
+        const writer = owned_stream.writer();
 
         const ws_client = try allocator.create(WsClient);
         errdefer allocator.destroy(ws_client);
@@ -47,13 +48,13 @@ pub const Connection = struct {
         );
 
         var self = Connection{
-            .underlying_stream = underlying_stream,
+            .underlying_stream = owned_stream,
             .ws_client = ws_client,
             .buffered_reader = buffered_reader,
             .headers = .{},
         };
 
-        try self.ws_client.handshake(allocator, uri, request_headers, &self.headers);
+        try self.ws_client.handshake(allocator, uri, extra_headers, &self.headers);
         return self;
     }
 

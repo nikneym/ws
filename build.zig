@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     _ = b.addModule("ws", .{
-        .source_file = .{ .path = "src/main.zig" },
+        .root_source_file = .{ .path = "src/main.zig" },
     });
 
     const test_compile = b.addTest(.{
@@ -13,7 +13,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const run_unit_tests = b.addRunArtifact(test_compile);
 
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&test_compile.step);
+    test_step.dependOn(&run_unit_tests.step);
 }

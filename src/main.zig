@@ -1,13 +1,17 @@
 const std = @import("std");
+const client_mod = @import("client.zig");
+pub const Connection = @import("connection.zig").Connection;
+const common = @import("./common.zig");
+const Stream = @import("./stream.zig");
+
 const net = std.net;
 const mem = std.mem;
 const io = std.io;
+const tls = std.crypto.tls;
 
 // these can be used directly too
-pub const Client = @import("client.zig").Client;
-pub const client = @import("client.zig").client;
-pub const Connection = @import("connection.zig").Connection;
-pub const Header = [2][]const u8;
+pub const Client = client_mod.Client;
+pub const client = client_mod.client;
 
 pub const Address = union(enum) {
     ip: std.net.Address,
@@ -19,44 +23,64 @@ pub const Address = union(enum) {
     }
 };
 
-// TODO: implement TLS connection
+pub const ConnectOptions = struct {
+    extra_headers: []const common.HttpHeader = &.{},
+    ca_bundle: ?std.crypto.Certificate.Bundle = null,
+};
+
 /// Open a new WebSocket connection.
 /// Allocator is used for DNS resolving of host and the storage of response headers.
-pub fn connect(allocator: mem.Allocator, uri: std.Uri, request_headers: ?[]const Header) !Connection {
-    const port: u16 = uri.port orelse
-        if (mem.eql(u8, uri.scheme, "ws")) 80
-        else if (mem.eql(u8, uri.scheme, "wss")) 443
-        else return error.UnknownScheme;
+pub fn connect(allocator: mem.Allocator, uri: std.Uri, options: ConnectOptions) !Connection {
+    if (uri.host == null) return error.MissingHost;
 
-    var stream = try switch (Address.resolve(uri.host orelse return error.MissingHost, port)) {
+    const protocol = std.http.Client.protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
+    const port: u16 = uri.port orelse switch (protocol) {
+        .plain => 80,
+        .tls => 443,
+    };
+
+    var net_stream = try switch (Address.resolve(uri.host orelse return error.MissingHost, port)) {
         .ip => |ip| net.tcpConnectToAddress(ip),
         .host => |host| net.tcpConnectToHost(allocator, host, port),
     };
-    errdefer stream.close();
+    errdefer net_stream.close();
 
-    return Connection.init(allocator, stream, uri, request_headers);
+    const tls_client: ?tls.Client = switch (protocol) {
+        .plain => null,
+        .tls => brk: {
+            var bundle = options.ca_bundle orelse brk2: {
+                var res = std.crypto.Certificate.Bundle{};
+                try res.rescan(allocator);
+                break :brk2 res;
+            };
+            defer if (options.ca_bundle == null) bundle.deinit(allocator);
+            break :brk try tls.Client.init(net_stream, bundle, uri.host.?);
+        },
+    };
+
+    const stream = Stream{ .net_stream = net_stream, .tls_client = tls_client };
+
+    return Connection.init(allocator, stream, uri, options.extra_headers);
 }
 
-test "Simple connection to :8080" {
+test "plain connection to :8080" {
     const allocator = std.testing.allocator;
 
-    var cli = try connect(allocator, try std.Uri.parse("ws://localhost:8080"), &.{
-        .{"Host",   "localhost"},
-        .{"Origin", "http://localhost/"},
-    });
-    defer cli.deinit(allocator);
+    var ws = try connect(allocator, try std.Uri.parse("ws://localhost:8080/asdf"), .{});
+    defer ws.deinit(allocator);
 
     while (true) {
-        const msg = try cli.receive();
+        const msg = try ws.receive();
         switch (msg.type) {
             .text => {
                 std.debug.print("received: {s}\n", .{msg.data});
-                try cli.send(.text, msg.data);
+                // try ws.send(.text, msg.data);
+                break;
             },
 
             .ping => {
                 std.debug.print("got ping! sending pong...\n", .{});
-                try cli.pong();
+                try ws.pong();
             },
 
             .close => {
@@ -65,10 +89,10 @@ test "Simple connection to :8080" {
             },
 
             else => {
-                std.debug.print("got {s}: {s}\n", .{@tagName(msg.type), msg.data});
+                std.debug.print("got {s}: {s}\n", .{ @tagName(msg.type), msg.data });
             },
         }
     }
 
-    try cli.close();
+    try ws.close();
 }

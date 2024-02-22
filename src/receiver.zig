@@ -82,7 +82,7 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
                         '\n' => break,
 
                         else => {
-                            buf[i] = b;
+                            buf[i] = std.ascii.toLower(b);
                             if (i < buf.len) {
                                 i += 1;
                             } else {
@@ -173,14 +173,14 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
                     const len = try self.reader.readAll(self.header_buffer[2..4]);
                     if (len < 2) return error.EndOfStream;
 
-                    return mem.readIntBig(u16, self.header_buffer[2..4]);
+                    return mem.readInt(u16, self.header_buffer[2..4], .big);
                 },
 
                 127 => {
                     const len = try self.reader.readAll(self.header_buffer[2..]);
                     if (len < 8) return error.EndOfStream;
 
-                    return mem.readIntBig(u64, self.header_buffer[2..]);
+                    return mem.readInt(u64, self.header_buffer[2..], .big);
                 },
 
                 inline else => var_length,
@@ -214,17 +214,17 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
                 0 => Message.from(.close, buf, null),
 
                 2 => { // without reason but code
-                    const code = mem.readIntBig(u16, buf[0..2]);
+                    const code = mem.readInt(u16, buf[0..2], .big);
 
                     return Message.from(.close, buf, code);
                 },
 
                 else => { // with reason
-                    const code = mem.readIntBig(u16, buf[0..2]);
+                    const code = mem.readInt(u16, buf[0..2], .big);
                     const reason = buf[2..];
 
                     return Message.from(.close, reason, code);
-                }
+                },
             };
         }
 
