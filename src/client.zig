@@ -13,16 +13,15 @@ const Sender = @import("sender.zig").Sender;
 pub fn client(
     reader: anytype,
     writer: anytype,
-    comptime read_buffer_size: usize,
-    comptime write_buffer_size: usize,
-) Client(@TypeOf(reader), @TypeOf(writer), read_buffer_size, write_buffer_size)
-{
+    read_buffer: []u8,
+    write_buffer: []u8,
+) Client(@TypeOf(reader), @TypeOf(writer)) {
     var mask: [4]u8 = undefined;
     std.crypto.random.bytes(&mask);
 
     return .{
-        .receiver = .{ .reader = reader },
-        .sender = .{ .writer = writer, .mask = mask },
+        .receiver = .{ .reader = reader, .buffer = read_buffer },
+        .sender = .{ .writer = writer, .mask = mask, .buffer = write_buffer },
     };
 }
 
@@ -31,29 +30,28 @@ pub fn client(
 pub fn Client(
     comptime Reader: type,
     comptime Writer: type,
-    comptime read_buffer_size: usize,
-    comptime write_buffer_size: usize,
 ) type {
     return struct {
         const Self = @This();
 
-        receiver: Receiver(Reader, read_buffer_size),
-        sender: Sender(Writer, write_buffer_size),
+        receiver: Receiver(Reader),
+        sender: Sender(Writer),
 
-        /// Deallocate response headers.
         pub fn deinit(
             self: Self,
             allocator: mem.Allocator,
             headers: *std.StringHashMapUnmanaged([]const u8),
         ) void {
             self.receiver.freeHttpHeaders(allocator, headers);
+            allocator.free(self.receiver.buffer);
+            allocator.free(self.sender.buffer);
         }
 
         pub fn handshake(
             self: *Self,
             allocator: mem.Allocator,
             uri: std.Uri,
-            request_headers: ?[]const [2][]const u8,
+            extra_headers: []const common.HttpHeader,
             response_headers: *std.StringHashMapUnmanaged([]const u8),
         ) !void {
             // create a random Sec-WebSocket-Key
@@ -61,21 +59,26 @@ pub fn Client(
             std.crypto.random.bytes(buf[0..16]);
             const key = std.base64.standard.Encoder.encode(&buf, buf[0..16]);
 
-            try self.sender.sendRequest(uri, request_headers, key);
+            try self.sender.sendRequest(uri, extra_headers, key);
             try self.receiver.receiveResponse(allocator, response_headers);
             errdefer self.receiver.freeHttpHeaders(allocator, response_headers);
+
+            // var iter = response_headers.iterator();
+            // while (iter.next()) |kv| {
+            //     std.debug.print("{s}={s}\n", .{ kv.key_ptr.*, kv.value_ptr.* });
+            // }
 
             try checkWebSocketAcceptKey(response_headers.*, key);
         }
 
-        const WsAcceptKeyError = error{KeyControlFailed, AcceptKeyNotFound};
+        const WsAcceptKeyError = error{ KeyControlFailed, AcceptKeyNotFound };
 
         /// Controls the accept key received from the server
         fn checkWebSocketAcceptKey(
             headers: std.StringHashMapUnmanaged([]const u8),
             key: []const u8,
         ) WsAcceptKeyError!void {
-            if (headers.get("Sec-WebSocket-Accept")) |sec_websocket_accept| {
+            if (headers.get("sec-websocket-accept")) |sec_websocket_accept| {
                 const magic_string = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
                 var hash_buf: [20]u8 = undefined;
@@ -115,7 +118,7 @@ pub fn Client(
         }
 
         /// TODO: Add usage example
-        /// Send send continuation frames or streaming messages to the server.
+        /// Send continuation frames or streaming messages to the server.
         pub fn stream(self: *Self, opcode: Opcode, payload: ?[]const u8) !void {
             return self.sender.stream(opcode, payload);
         }

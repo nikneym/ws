@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/nikneym/ws/blob/main/misc/logo.png" alt="ws" width="60%" height="30%" />
+  <img src="./misc/logo.png" alt="ws" width="60%" height="30%" />
 </p>
 
 ws
@@ -58,7 +58,7 @@ test "Simple connection to :8080" {
 Planned
 ===========
 - [ ] WebSocket server support
-- [ ] TLS support out of the box (tracks `std.crypto.tls.Client`)
+- [x] TLS support out of the box (tracks `std.crypto.tls.Client`)
 - [x] Request & response headers
 - [ ] WebSocket Compression support
 

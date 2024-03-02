@@ -11,12 +11,12 @@ const MAX_CTL_FRAME_LENGTH = common.MAX_CTL_FRAME_LENGTH;
 // server should not be sending masked messages.
 const MAX_HEADER_SIZE = 10;
 
-pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
+pub fn Receiver(comptime Reader: type) type {
     return struct {
         const Self = @This();
 
         reader: Reader,
-        buffer: [capacity]u8 = undefined,
+        buffer: []u8,
         header_buffer: [MAX_HEADER_SIZE]u8 = undefined,
         // specified for ping, pong and close frames.
         control_buffer: [MAX_CTL_FRAME_LENGTH]u8 = undefined,
@@ -82,7 +82,7 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
                         '\n' => break,
 
                         else => {
-                            buf[i] = b;
+                            buf[i] = std.ascii.toLower(b);
                             if (i < buf.len) {
                                 i += 1;
                             } else {
@@ -138,10 +138,6 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
             const len = try self.reader.readAll(buf);
             if (len < 2) return error.EndOfStream;
 
-            const is_masked = buf[1] & 0x80 != 0;
-            if (is_masked)
-                return error.MaskedMessageFromServer; // FIXME: should this be allowed?
-
             // get length from variable length
             const var_length: u7 = @truncate(buf[1] & 0x7F);
             const length = try self.getLength(var_length);
@@ -173,14 +169,14 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
                     const len = try self.reader.readAll(self.header_buffer[2..4]);
                     if (len < 2) return error.EndOfStream;
 
-                    return mem.readIntBig(u16, self.header_buffer[2..4]);
+                    return mem.readInt(u16, self.header_buffer[2..4], .big);
                 },
 
                 127 => {
                     const len = try self.reader.readAll(self.header_buffer[2..]);
                     if (len < 8) return error.EndOfStream;
 
-                    return mem.readIntBig(u64, self.header_buffer[2..]);
+                    return mem.readInt(u64, self.header_buffer[2..], .big);
                 },
 
                 inline else => var_length,
@@ -214,17 +210,17 @@ pub fn Receiver(comptime Reader: type, comptime capacity: usize) type {
                 0 => Message.from(.close, buf, null),
 
                 2 => { // without reason but code
-                    const code = mem.readIntBig(u16, buf[0..2]);
+                    const code = mem.readInt(u16, buf[0..2], .big);
 
                     return Message.from(.close, buf, code);
                 },
 
                 else => { // with reason
-                    const code = mem.readIntBig(u16, buf[0..2]);
+                    const code = mem.readInt(u16, buf[0..2], .big);
                     const reason = buf[2..];
 
                     return Message.from(.close, reason, code);
-                }
+                },
             };
         }
 

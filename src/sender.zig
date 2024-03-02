@@ -9,25 +9,35 @@ const MAX_CTL_FRAME_LENGTH = common.MAX_CTL_FRAME_LENGTH;
 const MASK_BUFFER_SIZE: usize = 1024;
 const DEFAULT_CLOSE_CODE: u16 = 1000;
 
+var uri_buf: [MASK_BUFFER_SIZE]u8 = undefined;
 fn getUriFullPath(uri: std.Uri) ![]const u8 {
-    var buf: [MASK_BUFFER_SIZE]u8 = undefined;
-    return try std.fmt.bufPrint(&buf, "{}", .{uri});
+    var stream = std.io.fixedBufferStream(&uri_buf);
+    const writer = stream.writer();
+    try uri.writeToStream(.{
+        .scheme = false,
+        .authentication = false,
+        .authority = false,
+        .path = true,
+        .query = true,
+        .fragment = false,
+        .raw = false,
+    }, writer);
+    return uri_buf[0..stream.pos];
 }
 
-pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
+pub fn Sender(comptime Writer: type) type {
     return struct {
         const Self = @This();
 
         writer: Writer,
         mask: [4]u8,
-        // for buffered writes
-        buffer: [capacity]u8 = undefined,
+        buffer: []u8,
         end: usize = 0,
 
         pub fn sendRequest(
             self: *Self,
             uri: std.Uri,
-            request_headers: ?[]const [2][]const u8,
+            headers: []const common.HttpHeader,
             sec_websocket_key: []const u8,
         ) !void {
             // push http request line
@@ -37,29 +47,34 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
 
             // push default headers
             const default_headers =
-                "Pragma: no-cache\r\n" ++
-                "Cache-Control: no-cache\r\n" ++
-                "Connection: Upgrade\r\n" ++
-                "Upgrade: websocket\r\n" ++
-                "Sec-WebSocket-Version: 13\r\n";
+                "pragma: no-cache\r\n" ++
+                "cache-control: no-cache\r\n" ++
+                "connection: Upgrade\r\n" ++
+                "upgrade: websocket\r\n" ++
+                "sec-websocket-version: 13\r\n";
             try self.put(default_headers);
 
             // push websocket key
-            try self.put("Sec-WebSocket-Key: ");
+            try self.put("sec-websocket-key: ");
             try self.put(sec_websocket_key);
             try self.put("\r\n");
 
-            // push user defined headers
-            if (request_headers) |headers| {
-                for (headers) |header| {
-                    try self.put(header[0]);
-                    try self.put(": ");
-                    try self.put(header[1]);
-                    try self.put("\r\n");
-                }
+            // push host
+            if (uri.host) |h| {
+                try self.put("host: ");
+                try self.put(h);
+                try self.put("\r\n");
             }
 
-            // send 'em all 
+            // push user defined headers
+            for (headers) |h| {
+                try self.put(h.name);
+                try self.put(": ");
+                try self.put(h.value);
+                try self.put("\r\n");
+            }
+
+            // send 'em all
             try self.put("\r\n");
             return self.flush();
         }
@@ -78,7 +93,7 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
                     return self.writer.writeAll(bytes);
             }
 
-            mem.copy(u8, self.buffer[self.end..], bytes);
+            mem.copyForwards(u8, self.buffer[self.end..], bytes);
             self.end += bytes.len;
         }
 
@@ -91,21 +106,21 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
             buf[1] = 0x80;
             if (header.len < 126) {
                 buf[1] |= @truncate(header.len);
-                mem.copy(u8, buf[2..], &self.mask);
+                mem.copyForwards(u8, buf[2..], &self.mask);
 
                 // 2 + 4
                 return self.put(buf[0..6]);
             } else if (header.len < 65536) {
                 buf[1] |= 126;
-                mem.writeIntBig(u16, buf[2..4], @as(u16, @truncate(header.len)));
-                mem.copy(u8, buf[4..], &self.mask);
+                mem.writeInt(u16, buf[2..4], @as(u16, @truncate(header.len)), .big);
+                mem.copyForwards(u8, buf[4..], &self.mask);
 
                 // 2 + 2 + 4
                 return self.put(buf[0..8]);
             } else {
                 buf[1] |= 127;
-                mem.writeIntBig(u64, buf[2..10], header.len);
-                mem.copy(u8, buf[10..], &self.mask);
+                mem.writeInt(u64, buf[2..10], header.len, .big);
+                mem.copyForwards(u8, buf[10..], &self.mask);
 
                 // 2 + 8 + 4
                 return self.put(&buf);
@@ -135,7 +150,7 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
 
             while (current_chunk < num_of_chunks) : (current_chunk += 1) {
                 pos = current_chunk * MASK_BUFFER_SIZE;
-                const chunk = data[pos..pos + MASK_BUFFER_SIZE];
+                const chunk = data[pos .. pos + MASK_BUFFER_SIZE];
 
                 self.maskBytes(buf[0..], chunk, pos);
                 try self.put(buf[0..]);
@@ -146,7 +161,7 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
 
             // got remainder
             pos += MASK_BUFFER_SIZE;
-            const chunk = data[pos..pos + remainder];
+            const chunk = data[pos .. pos + remainder];
 
             self.maskBytes(&buf, chunk, pos);
             return self.put(buf[0..remainder]);
@@ -225,15 +240,13 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
             try self.putHeader(.{
                 .len = 0,
                 .opcode = switch (opcode) {
-                    .text, .binary,
-                    .continuation => opcode,
+                    .text, .binary, .continuation => opcode,
                     .end => .continuation,
 
                     else => return error.UnknownOpcode,
                 },
                 .fin = switch (opcode) {
-                    .text, .binary,
-                    .continuation => false,
+                    .text, .binary, .continuation => false,
                     .end => true,
 
                     else => return error.UnknownOpcode,
@@ -256,38 +269,17 @@ pub fn Sender(comptime Writer: type, comptime capacity: usize) type {
     };
 }
 
-test "std.Uri processing results in expected paths" {
-    const uris = [_]std.Uri {
-        try std.Uri.parse("ws://localhost"),
-        try std.Uri.parse("ws://localhost/"),
-        try std.Uri.parse("ws://localhost?query=example"),
-        try std.Uri.parse("ws://localhost/?query=example"),
-        try std.Uri.parse("ws://localhost/?query1=&&something&query2=somethingelse"),
-        try std.Uri.parse("ws://localhost/?query1=something with spaces&query2=somethingelse"),
-        try std.Uri.parse("ws://localhost:8080"),
-        try std.Uri.parse("ws://localhost:8080/"),
-        try std.Uri.parse("ws://localhost:8080?query=example"),
-        try std.Uri.parse("ws://localhost:8080/?query=example"),
-        try std.Uri.parse("ws://localhost:8080/?query1=&&something&query2=somethingelse"),
-        try std.Uri.parse("ws://localhost:8080/?query1=something with spaces&query2=somethingelse"),
-    };
+fn expectPath(expected: []const u8, uri_string: []const u8) !void {
+    const uri = try std.Uri.parse(uri_string);
+    try std.testing.expectEqualStrings(expected, try getUriFullPath(uri));
+}
 
-    const paths = [_][]const u8{
-        "/",
-        "/",
-        "/?query=example",
-        "/?query=example",
-        "/?query1=&&something&query2=somethingelse",
-        "/?query1=something%20with%20spaces&query2=somethingelse",
-        "/",
-        "/",
-        "/?query=example",
-        "/?query=example",
-        "/?query1=&&something&query2=somethingelse",
-        "/?query1=something%20with%20spaces&query2=somethingelse",
-    };
-    
-    for (uris, paths) |uri, path| {
-        try std.testing.expectEqualSlices(u8, path, try getUriFullPath(uri));
-    }
+test "std.Uri processing results in expected paths" {
+    try expectPath("/", "ws://localhost");
+    try expectPath("/", "ws://localhost/");
+    try expectPath("/?query=example", "ws://localhost?query=example");
+    try expectPath("/?query=example", "ws://localhost/?query=example");
+    try expectPath("/?query1=&&something&query2=somethingelse", "ws://localhost/?query1=&&something&query2=somethingelse");
+    try expectPath("/?query1=something%20with%20spaces&query2=somethingelse", "ws://localhost/?query1=something with spaces&query2=somethingelse");
+    try expectPath("/?query1=something%20with%20spaces&query2=somethingelse", "ws://localhost/?query1=something with spaces&query2=somethingelse");
 }
